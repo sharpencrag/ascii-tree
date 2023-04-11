@@ -95,8 +95,8 @@ import ascii_tree
 
 grandchild = ascii_tree.TextRenderNode("grandchild")
 grandchild_two = ascii_tree.TextRenderNode("grandchild_two")
-child = ascii_tree.TextRenderNode("child")
-root = ascii_tree.TextRenderNode("root")
+child = ascii_tree.TextRenderNode("child", children=[grandchild, grandchild_two])
+root = ascii_tree.TextRenderNode("root", children=[child]])
 
 print(ascii_tree.render(root))
 ```
