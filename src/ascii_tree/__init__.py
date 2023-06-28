@@ -5,9 +5,6 @@ from pathlib import Path
 from ascii_tree import styles
 
 
-__all__ = ["render", "renderable_dir_tree", "TextRenderNode"]
-
-
 class TextRenderNode:
     """Basic tree node for use with render_tree."""
 
@@ -45,15 +42,30 @@ def renderable(
     default to obj.display and obj.children, respectively.
 
     """
+
+    # check for whoopsies
+    if display_attr and display_method or children_attr and children_method:
+        raise ValueError(
+            "You cannot provide both an attribute and a method for the same "
+            "interface."
+        )
+
     # interface for display
-    display = getattr(obj, display_attr) if display_attr else None
-    display = display if display is not None else display_method() if display_method else None
-    display = display if display is not None else obj.display
+    if display_attr:
+        display = getattr(obj, display_attr)
+    elif display_method:
+        display = display_method()
+    else:
+        display = obj.display
 
     # interface for children
-    children = getattr(obj, children_attr) if children_attr else None
-    children = children if children is not None else children_method() if children_method else None
-    children = children if children is not None else obj.children
+    if children_attr:
+        children = getattr(obj, children_attr)
+    elif children_method:
+        children = children_method()
+    else:
+        children = obj.children
+
     children = [renderable(child) for child in children]
 
     return TextRenderNode(display=display, children=children)
@@ -80,7 +92,12 @@ def renderable_from_parents(
     roots = []
 
     def get_parent(obj):
-        return getattr(obj, parent_attr) if parent_attr else parent_method(obj) if parent_method else obj.parent
+        if parent_attr:
+            return getattr(obj, parent_attr)
+        elif parent_method:
+            return parent_method(obj)
+        else:
+            return obj.parent
 
     def make_node(obj):
         return renderable(
