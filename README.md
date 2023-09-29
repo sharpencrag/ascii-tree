@@ -169,7 +169,10 @@ tree = ascii_tree.renderable_from_parents(
 )
 print(ascii_tree.render(tree[0]))
 ```
-Root-level nodes in your hierarchy *must* return `None` from either `parent_attr` or `parent_method`.
+By default, nodes are considered to be "root-level" if they return `None` from either `parent_attr` or `parent_method`.
+
+If your system handles root status differently, you can pass in a callback function,
+`is_root_callback`, to `renderable_from_parents` to override this behavior.  `is_root_callback` takes a single argument, the node in question, and should return `True` if the node is a root node, and `False` otherwise.
 
 Note that `renderable_from_parents` always **returns a list** -- this is to ensure that
 data with multiple root nodes are supported.
@@ -180,6 +183,7 @@ root
 └─ child
    └─ grandchild
 ```
+
 ## Rendering Styles
 
 `ascii-tree` currently provides three styles of rendering:

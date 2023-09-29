@@ -66,6 +66,15 @@ class TestRenderableFromParents:
             self.name = name
             self.parent = parent
 
+    class DummyWithDifferentParentSentinel:
+        # This tests the ability to use a callback to determine if a node is root
+        def __init__(self, name, parent=None):
+            self.name = name
+            self.parent = parent or 5
+
+        def is_root(self):
+            return self.parent == 5
+
     def test_single_root(self):
         obj1 = self.DummyObject("Root")
         obj2 = self.DummyObject("Child", parent=obj1)
@@ -88,8 +97,22 @@ class TestRenderableFromParents:
             display_attr="name",
         )
         assert len(nodes) == 2
-        assert sorted([node.display for node in nodes]) == ["Root1", "Root2"]
+        nodes = sorted(nodes, key=lambda node: node.display)
+        assert [node.display for node in nodes] == ["Root1", "Root2"]
         assert nodes[1].children[0].display == "Child"
+
+    def test_root_callback(self):
+        obj = self.DummyWithDifferentParentSentinel("Root")
+        obj2 = self.DummyWithDifferentParentSentinel("Child", parent=obj)
+        nodes = renderable_from_parents(
+            [obj2],
+            parent_attr="parent",
+            display_attr="name",
+            is_root_callback=(lambda node: node.is_root()),
+        )
+        assert len(nodes) == 1
+        assert nodes[0].display == "Root"
+        assert nodes[0].children[0].display == "Child"
 
 
 if __name__ == "__main__":

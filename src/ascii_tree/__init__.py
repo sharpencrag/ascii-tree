@@ -75,6 +75,7 @@ def renderable_from_parents(
     objs: t.Sequence[t.Any],
     parent_attr: t.Optional[str] = None,
     parent_method: t.Optional[t.Callable] = None,
+    is_root_callback: t.Optional[t.Callable[[t.Any], bool]] = None,
     display_attr: t.Optional[str] = None,
     display_method: t.Optional[t.Callable] = None,
 ) -> t.List[TextRenderNode]:
@@ -89,9 +90,9 @@ def renderable_from_parents(
     are multiple roots in your given sequence.
     """
 
-    roots = []
-
     def get_parent(obj):
+        if is_root_callback and is_root_callback(ancestor):
+            return None
         if parent_attr:
             return getattr(obj, parent_attr)
         elif parent_method:
@@ -107,7 +108,7 @@ def renderable_from_parents(
             children_method=lambda: list(),
         )
 
-    node_dict = dict()
+    node_dict: t.Dict[TextRenderNode, TextRenderNode] = dict()
     roots = set()
     for obj in objs:
         ancestor = obj
@@ -145,18 +146,18 @@ def renderable_dir_tree(
     """Create a TextRenderNode tree from a given file system path.
 
     Args:
-        path (str): The path to the directory to build the tree from.
-        recursive (bool, optional): Whether to build the tree recursively.
+        path: The path to the directory to build the tree from.
+        recursive: Whether to build the tree recursively.
             Defaults to True.
-        max_depth (Optional[int], optional): The maximum depth to build the tree
+        max_depth: The maximum depth to build the tree
             to. If not specified, the tree will be built to its full depth. Defaults
             to None.
-        slash_after_dir (bool, optional): Whether to add a forward slash after
+        slash_after_dir: Whether to add a forward slash after
             directories in the tree. Defaults to True.
-        ellipsis_after_max_depth (bool, optional): Whether to add an ellipsis
+        ellipsis_after_max_depth: Whether to add an ellipsis
             after the last directory in a path that reaches the maximum depth.
             Defaults to True.
-        skip_if_no_permission (bool, optional): Whether to skip adding a node to
+        skip_if_no_permission: Whether to skip adding a node to
             the tree if permission is denied to access it. Defaults to True.
 
 
