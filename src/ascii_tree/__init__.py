@@ -1,8 +1,16 @@
 from __future__ import annotations
 import typing as t
+import typing_extensions as te
 from pathlib import Path
 
 from ascii_tree import styles
+
+T = t.TypeVar("T")
+
+
+class Renderable(te.Protocol):
+    display: str
+    children: t.MutableSequence[Renderable]
 
 
 class TextRenderNode:
@@ -20,11 +28,13 @@ class TextRenderNode:
 
 
 def renderable(
-    obj: t.Any,
+    obj: T,
     display_attr: t.Optional[str] = None,
-    display_method: t.Optional[t.Callable] = None,
+    display_method: t.Optional[t.Callable[[], str]] = None,
+    display_function: t.Optional[t.Callable[[T], str]] = None,
     children_attr: t.Optional[str] = None,
     children_method: t.Optional[t.Callable] = None,
+    children_function: t.Optional[t.Callable[[T], str]] = None,
 ) -> TextRenderNode:
     """Create a TextRenderNode interface for a tree-structured object.
 
@@ -44,40 +54,63 @@ def renderable(
     """
 
     # check for whoopsies
-    if display_attr and display_method or children_attr and children_method:
+    if (
+        (display_attr and display_method)
+        or (children_attr and children_method)
+        or (display_attr and display_function)
+        or (children_attr and children_function)
+        or (display_method and display_function)
+        or (children_method and children_function)
+    ):
         raise ValueError(
-            "You cannot provide both an attribute and a method for the same "
-            "interface."
+            "You must provide only interface: attr, method, or function."
         )
 
-    # interface for display
-    if display_attr:
-        display = getattr(obj, display_attr)
-    elif display_method:
-        display = display_method()
+    display = _get_from_interface(
+        obj, "display", display_attr, display_method, display_function
+    )
+
+    children = _get_from_interface(
+        obj, "children", children_attr, children_method, children_function
+    )
+
+    renderable_children = [renderable(child) for child in children]
+
+    return TextRenderNode(display=display, children=renderable_children)
+
+
+def _get_from_interface(
+    obj: T,
+    default_attr: str,
+    provided_attr: str | None,
+    method: t.Callable | None,
+    function: t.Callable[[T]] | None,
+) -> t.Any:
+    if provided_attr:
+        return_value = getattr(obj, provided_attr)
+    elif method:
+        return_value = method()
+    elif function:
+        return_value = function(obj)
     else:
-        display = obj.display
-
-    # interface for children
-    if children_attr:
-        children = getattr(obj, children_attr)
-    elif children_method:
-        children = children_method()
-    else:
-        children = obj.children
-
-    children = [renderable(child) for child in children]
-
-    return TextRenderNode(display=display, children=children)
+        try:
+            return_value = getattr(obj, default_attr)
+        except AttributeError as e:
+            raise AttributeError(
+                f"The object must have a '{default_attr}' attribute or "
+                f"provide an interface attribute or function."
+            ) from e
+    return return_value
 
 
 def renderable_from_parents(
-    objs: t.Sequence[t.Any],
+    objs: t.Sequence[T],
     parent_attr: t.Optional[str] = None,
     parent_method: t.Optional[t.Callable] = None,
-    is_root_callback: t.Optional[t.Callable[[t.Any], bool]] = None,
+    is_root_callback: t.Optional[t.Callable[[T], bool]] = None,
     display_attr: t.Optional[str] = None,
     display_method: t.Optional[t.Callable] = None,
+    display_function: t.Optional[t.Callable[[T], str]] = None,
 ) -> t.List[TextRenderNode]:
     """Build a renderable tree from objects with only "parent" references.
 
@@ -85,12 +118,25 @@ def renderable_from_parents(
     references to their parents (bottom-up organization), this function will
     build trees of (top-down) TextRenderNodes.
 
-    Note that this function always returns a list of TextRenderNodes, even if
-    there is only one root node.  This is meant to support the case where there
-    are multiple roots in your given sequence.
+    Note that this function always returns a list of top-level TextRenderNodes,
+    even if there is only one root node.  This is meant to support the case
+    where there are multiple roots in your given sequence.
+
+    Args:
+        objs: A sequence of objects to build the tree from.
+        parent_attr: An attribute (as a string) that obtains the parent.
+        parent_method: A method to call to get a parent object.
+        is_root_callback: A function that takes an object and returns True if
+            it is a root node.
+        display_attr: The attribute of the object to use as the display text.
+        display_method: Method to call to get display text for the node.
+        display_function: Function takes an object and returns the display.
     """
 
-    def get_parent(obj):
+    def get_parent(obj) -> T | None:
+        # ancestor is defined below - this is a closure
+        if ancestor is None:
+            return None
         if is_root_callback and is_root_callback(ancestor):
             return None
         if parent_attr:
@@ -105,10 +151,11 @@ def renderable_from_parents(
             obj,
             display_attr=display_attr,
             display_method=display_method,
+            display_function=display_function,
             children_method=lambda: list(),
         )
 
-    node_dict: t.Dict[TextRenderNode, TextRenderNode] = dict()
+    node_dict: t.Dict[T, TextRenderNode] = dict()
     roots = set()
     for obj in objs:
         ancestor = obj
@@ -138,9 +185,13 @@ def renderable_from_parents(
 def renderable_dir_tree(
     path: t.Union[str, Path],
     recursive: bool = True,
-    max_depth: t.Optional[int] = None,
+    max_dir_depth: t.Optional[int] = None,
+    dir_filter: t.Callable[[Path], bool] | None = None,
+    max_file_count: t.Optional[int] = None,
+    file_filter: t.Callable[[Path], bool] | None = None,
     slash_after_dir: bool = True,
     ellipsis_after_max_depth: bool = True,
+    ellipsis_after_max_files: bool = True,
     skip_if_no_permission: bool = True,
 ) -> TextRenderNode:
     """Create a TextRenderNode tree from a given file system path.
@@ -149,17 +200,26 @@ def renderable_dir_tree(
         path: The path to the directory to build the tree from.
         recursive: Whether to build the tree recursively.
             Defaults to True.
-        max_depth: The maximum depth to build the tree
-            to. If not specified, the tree will be built to its full depth. Defaults
+        max_dir_depth: The maximum depth to build the tree
+            to. If not specified, the tree will be built to its full depth.
+            Defaults to None.
+        dir_filter: A callable that takes a Path object and returns True if
+            the directory should be included in the tree. Defaults to None.
+        max_file_count: The maximum number of files to include in the tree per
+            directory. If not specified, all files will be included. Defaults
             to None.
+        file_filter: A callable that takes a Path object and returns True if
+            the file should be included in the tree. Defaults to None.
         slash_after_dir: Whether to add a forward slash after
             directories in the tree. Defaults to True.
         ellipsis_after_max_depth: Whether to add an ellipsis
             after the last directory in a path that reaches the maximum depth.
             Defaults to True.
+        ellipsis_after_max_files: Whether to add an ellipsis after the last
+            file in a directory that reaches the maximum file count. Defaults
+            to True.
         skip_if_no_permission: Whether to skip adding a node to
             the tree if permission is denied to access it. Defaults to True.
-
 
     Returns:
     TextRenderNode: A tree node representing the file system tree rooted at the
@@ -171,18 +231,19 @@ def renderable_dir_tree(
 
     """
     if recursive is False:
-        max_depth = 1
+        max_dir_depth = 1
 
     def _build_tree(
-        node_path: Path, current_depth: int, max_depth: t.Optional[int]
+        node_path: Path,
+        current_depth: int,
+        max_depth: t.Optional[int],
+        max_files: t.Optional[int],
+        dir_filter: t.Callable[[Path], bool] | None = None,
+        file_filter: t.Callable[[Path], bool] | None = None,
     ) -> TextRenderNode:
         """Recursively build a TextRenderNode tree from a given file system path."""
 
-        # we are at a leaf node, no need to continue
-        if node_path.is_file():
-            return TextRenderNode(display=node_path.name)
-
-        # Node is a directory, but we've reached max_depth, so we need to stop
+        # we've reached max_depth, so we need to stop
         children: t.List[TextRenderNode] = []
         if max_depth and current_depth >= max_depth:
             display = (
@@ -197,14 +258,59 @@ def renderable_dir_tree(
             child_iter = node_path.iterdir()
         except PermissionError:
             if skip_if_no_permission:
-                return TextRenderNode(display=node_path.name + "[Permission Denied]")
+                return TextRenderNode(
+                    display=node_path.name
+                    + f"[Permission Denied]{' /' * slash_after_dir}"
+                )
             else:
                 raise
-        try:
-            for child_path in child_iter:
-                child_node = _build_tree(child_path, current_depth + 1, max_depth)
-                children.append(child_node)
-        except PermissionError:
+        permission_error_on_child = False
+
+        current_file_count = 0
+        skipping_remaining_files = False
+        for child_path in child_iter:
+            # Current node is a file
+            try:
+                is_file = child_path.is_file()
+            except PermissionError:
+                permission_error_on_child = True
+                continue
+            if is_file:
+                if skipping_remaining_files:
+                    continue
+                current_file_count += 1
+                # We're at the max file count, so we need to stop
+                if max_files and current_file_count > max_files:
+                    # We do want an ellipsis!
+                    if ellipsis_after_max_files:
+                        children.append(TextRenderNode(display="..."))
+                    # Skip the rest of the files in this directory
+                    skipping_remaining_files = True
+                    continue
+                # Check the filter...
+                if file_filter and not file_filter(child_path):
+                    continue
+                # Add the file to the tree
+                children.append(TextRenderNode(display=child_path.name))
+            else:
+                # Current node is a directory
+                if dir_filter and not dir_filter(child_path):
+                    continue
+                try:
+                    child_node = _build_tree(
+                        child_path,
+                        current_depth + 1,
+                        max_depth,
+                        max_files,
+                        dir_filter,
+                        file_filter,
+                    )
+                except PermissionError:
+                    permission_error_on_child = True
+                    continue
+                else:
+                    children.append(child_node)
+        if permission_error_on_child:
             if skip_if_no_permission:
                 children.append(TextRenderNode(display="[Permission Denied]"))
             else:
@@ -214,7 +320,14 @@ def renderable_dir_tree(
         return TextRenderNode(display=display, children=children)
 
     root_path = Path(path).resolve()
-    return _build_tree(root_path, 0, max_depth)
+    return _build_tree(
+        root_path,
+        0,
+        max_dir_depth,
+        max_file_count,
+        dir_filter,
+        file_filter,
+    )
 
 
 def render(

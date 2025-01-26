@@ -51,6 +51,21 @@ class TestRenderable:
         assert node.display == "Test"
         assert node.children == []
 
+    def test_renderable_with_function(self):
+        children = [self.DummyWithDefaultAttrs("Bar", []), self.DummyWithDefaultAttrs("Baz", [])]
+        expected_names = ["Bar", "Baz"]
+        def display_func(obj):
+            return "Foo"
+        def children_func(obj):
+            return children
+        obj = self.DummyWithDefaultAttrs("Test", [])
+        node = renderable(
+            obj, display_function=display_func,
+            children_function=children_func, # type: ignore - don't need typed return
+        )
+        assert node.display == "Foo"
+        assert [c.display for c in node.children] == expected_names
+
     def test_renderable_with_oddball_callables(self):
         obj = self.DummyObject("Test", [])
         node = renderable(

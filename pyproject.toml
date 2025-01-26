@@ -9,7 +9,7 @@ dev = [
 
 [project]
 name = "ascii-tree"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generate ASCII representations of tree-like data"
 authors = [
     {name = "sharpencrag", email = "ed.whetstone@gmail.com"},

@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 __all__ = ["TextRenderStyle", "solid_line_style", "clean_style", "basic_style"]
 
-
 @dataclass
 class TextRenderStyle:
     """A set of decorations used to render a tree as text."""
@@ -78,3 +77,9 @@ basic_style = TextRenderStyle(
     corner="+",
     space=" ",
 )
+
+styles_dict = {
+    "solid_line_style": solid_line_style,
+    "clean_style": clean_style,
+    "basic_style": basic_style,
+}
